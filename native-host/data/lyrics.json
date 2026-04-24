@@ -1,0 +1,24 @@
+[
+  {
+    "title": "夜に駆ける",
+    "artist": "YOASOBI",
+    "durationSec": 261,
+    "lines": [
+      { "startMs": 0, "text": "沈むように溶けてゆくように" },
+      { "startMs": 13000, "text": "二人だけの空が広がる夜に" },
+      { "startMs": 24000, "text": "Goodbye line (sample translation)" },
+      { "startMs": 36000, "text": "中文示例：在夜里奔跑" }
+    ]
+  },
+  {
+    "title": "晴天",
+    "artist": "周杰伦",
+    "durationSec": 269,
+    "lines": [
+      { "startMs": 0, "text": "故事的小黄花 从出生那年就飘着" },
+      { "startMs": 15000, "text": "童年的荡秋千 随记忆一直晃到现在" },
+      { "startMs": 30000, "text": "English sample: The weather is clear today" },
+      { "startMs": 45000, "text": "日本語サンプル: 晴れの日" }
+    ]
+  }
+]

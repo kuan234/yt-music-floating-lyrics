@@ -1,0 +1,107 @@
+(() => {
+  const POLL_MS = 500;
+  const state = {
+    lastPayloadKey: "",
+    lastSentAt: 0,
+    mediaEl: null
+  };
+
+  function getMediaElement() {
+    if (state.mediaEl && document.contains(state.mediaEl)) return state.mediaEl;
+    state.mediaEl = document.querySelector("video") || document.querySelector("audio");
+    return state.mediaEl;
+  }
+
+  function readMediaSession() {
+    const metadata = navigator.mediaSession?.metadata;
+    if (!metadata) return null;
+    return {
+      title: (metadata.title || "").trim(),
+      artist: (metadata.artist || "").trim()
+    };
+  }
+
+  function readDomFallback() {
+    const titleEl =
+      document.querySelector("ytmusic-player-bar .title") ||
+      document.querySelector("yt-formatted-string.title") ||
+      document.querySelector(".title");
+
+    const artistEl =
+      document.querySelector("ytmusic-player-bar .byline") ||
+      document.querySelector("yt-formatted-string.byline") ||
+      document.querySelector(".byline");
+
+    return {
+      title: (titleEl?.textContent || "").trim(),
+      artist: (artistEl?.textContent || "").trim()
+    };
+  }
+
+  function readCurrentTime() {
+    const media = getMediaElement();
+    if (media && Number.isFinite(media.currentTime)) {
+      return media.currentTime;
+    }
+
+    const elapsed = document.querySelector(".time-info")?.textContent || "";
+    const match = elapsed.match(/(\d+:\d+)/);
+    return match ? parseTime(match[1]) : 0;
+  }
+
+  function parseTime(text) {
+    const parts = text.split(":").map((x) => Number(x));
+    if (parts.some(Number.isNaN)) return 0;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return 0;
+  }
+
+  function readIsPlaying() {
+    const media = getMediaElement();
+    if (media) return !media.paused;
+
+    const playPause = document.querySelector("tp-yt-paper-icon-button.play-pause-button");
+    const title = playPause?.getAttribute("title") || "";
+    return !/play/i.test(title);
+  }
+
+  function collectPayload() {
+    const media = readMediaSession();
+    const dom = readDomFallback();
+    const title = media?.title || dom.title;
+    const artist = media?.artist || dom.artist;
+
+    return {
+      source: "ytm-content",
+      title,
+      artist,
+      currentTimeSec: Math.max(0, Number(readCurrentTime().toFixed(2))),
+      isPlaying: readIsPlaying(),
+      observedAt: Date.now()
+    };
+  }
+
+  function shouldSend(payload) {
+    if (!payload.title) return false;
+
+    const key = `${payload.title}|${payload.artist}|${Math.floor(payload.currentTimeSec)}|${payload.isPlaying}`;
+    const now = Date.now();
+
+    if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
+
+    state.lastPayloadKey = key;
+    state.lastSentAt = now;
+    return true;
+  }
+
+  function tick() {
+    const payload = collectPayload();
+    if (!shouldSend(payload)) return;
+    chrome.runtime.sendMessage({ type: "PLAYBACK_EVENT", payload });
+  }
+
+  setInterval(tick, POLL_MS);
+  document.addEventListener("visibilitychange", tick);
+  window.addEventListener("yt-navigate-finish", tick);
+})();
