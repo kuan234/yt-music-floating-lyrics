@@ -24,6 +24,10 @@ source.onmessage = (event) => {
 
   lastData = data;
   render(data);
+  const title = data.title || "Unknown title";
+  const artist = data.artist || "Unknown artist";
+  metaEl.textContent = `${artist} · ${title}`;
+  lineEl.textContent = data.line || "...";
 };
 
 source.onerror = () => {

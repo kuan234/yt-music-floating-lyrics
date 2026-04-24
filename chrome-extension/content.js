@@ -12,6 +12,9 @@
     return state.mediaEl;
   }
 
+    lastSentAt: 0
+  };
+
   function readMediaSession() {
     const metadata = navigator.mediaSession?.metadata;
     if (!metadata) return null;
@@ -32,6 +35,8 @@
       document.querySelector("yt-formatted-string.byline") ||
       document.querySelector(".byline");
 
+    const titleEl = document.querySelector("yt-formatted-string.title") || document.querySelector(".title");
+    const artistEl = document.querySelector("yt-formatted-string.byline") || document.querySelector(".byline");
     return {
       title: (titleEl?.textContent || "").trim(),
       artist: (artistEl?.textContent || "").trim()
@@ -47,6 +52,17 @@
     const elapsed = document.querySelector(".time-info")?.textContent || "";
     const match = elapsed.match(/(\d+:\d+)/);
     return match ? parseTime(match[1]) : 0;
+    const bar = document.querySelector("#progress-bar");
+    if (!bar) return 0;
+    const value = Number(bar.getAttribute("value") || 0);
+    const max = Number(bar.getAttribute("max") || 0);
+    if (!max || Number.isNaN(value) || Number.isNaN(max)) return 0;
+    const durationText = document.querySelector(".time-info")?.textContent || "";
+    // Fallback: rely on percent only when duration unknown.
+    const match = durationText.match(/(\d+:\d+)\s*\/\s*(\d+:\d+)/);
+    if (!match) return 0;
+    const total = parseTime(match[2]);
+    return total * (value / max);
   }
 
   function parseTime(text) {
@@ -90,6 +106,9 @@
 
     if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
 
+    const key = `${payload.title}|${payload.artist}|${Math.floor(payload.currentTimeSec)}|${payload.isPlaying}`;
+    const now = Date.now();
+    if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
     state.lastPayloadKey = key;
     state.lastSentAt = now;
     return true;

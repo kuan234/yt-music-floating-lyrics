@@ -15,6 +15,8 @@
 
 > 当前歌词源是本地静态数据（`native-host/data/lyrics.json`），用于先完成稳定链路和低资源验证。
 
+> 当前歌词为 mock 数据，用于先打通稳定链路；下一步接入真实歌词 provider。
+
 ## 目录结构
 
 - `chrome-extension/`
@@ -43,6 +45,14 @@
 3. 可以访问 `https://music.youtube.com`
 
 ### 1) 启动本地 Host（必须）
+- `overlay-app/`
+  - `index.html`、`styles.css`、`overlay.js`
+- `docs/`
+  - 设计文档与里程碑
+
+## 快速启动
+
+### 1) 启动本地 Host
 
 ```bash
 cd native-host
@@ -56,6 +66,9 @@ npm run start
 ```
 
 可选健康检查：
+默认监听：`http://127.0.0.1:42819`
+
+健康检查：
 
 ```bash
 curl http://127.0.0.1:42819/health
@@ -153,6 +166,22 @@ file:///C:/your-folder/yt-music-floating-lyrics/overlay-app/index.html
 - Background 只保留最新事件（coalescing），降低重试队列内存。
 - Host 仅缓存最近歌曲歌词（LRU，默认 100 条）。
 - 歌词定位使用二分查找，避免逐行扫描开销。
+### 2) 加载 Chrome 扩展
+
+1. 打开 `chrome://extensions`
+2. 开启「开发者模式」
+3. 选择「加载已解压的扩展程序」
+4. 指向 `chrome-extension/`
+
+### 3) 打开 Overlay 原型
+
+直接用浏览器打开 `overlay-app/index.html`，然后在 YouTube Music 播放歌曲。
+
+## 性能与稳定策略（MVP）
+
+- 扩展每 500ms 采样并去重，减少消息风暴。
+- Host 只维护最近歌曲状态，避免无界内存增长。
+- Overlay 只在歌词行变化时更新文本。
 - 全部通信走 `localhost`，最小化权限与安全面。
 
 ## 下一步

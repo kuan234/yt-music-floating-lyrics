@@ -7,6 +7,10 @@ let isFlushing = false;
 let latestPayload = null;
 
 async function postPayload(payload) {
+
+let backoffMs = RETRY_BASE_MS;
+
+async function sendToHost(payload) {
   const response = await fetch(HOST, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -45,4 +49,15 @@ chrome.runtime.onMessage.addListener((message) => {
   // Coalescing: always keep the newest payload only.
   latestPayload = message.payload;
   flushLoop();
+
+  backoffMs = RETRY_BASE_MS;
+}
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "PLAYBACK_EVENT") return;
+
+  sendToHost(message.payload).catch(async () => {
+    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    backoffMs = Math.min(4000, backoffMs * 2);
+  });
 });
