@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "YT Music Floating Lyrics Bridge",
+  "version": "0.1.0",
+  "description": "Capture YouTube Music playback state and forward it to local host.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://music.youtube.com/*",
+    "http://127.0.0.1:42819/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
