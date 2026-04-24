@@ -1,0 +1,9 @@
+{
+  "name": "ytm-floating-lyrics-overlay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node serve-overlay.mjs",
+    "check": "node --check overlay.js && node --check serve-overlay.mjs"
+  }
+}

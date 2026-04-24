@@ -2,6 +2,16 @@
   const POLL_MS = 500;
   const state = {
     lastPayloadKey: "",
+    lastSentAt: 0,
+    mediaEl: null
+  };
+
+  function getMediaElement() {
+    if (state.mediaEl && document.contains(state.mediaEl)) return state.mediaEl;
+    state.mediaEl = document.querySelector("video") || document.querySelector("audio");
+    return state.mediaEl;
+  }
+
     lastSentAt: 0
   };
 
@@ -15,6 +25,16 @@
   }
 
   function readDomFallback() {
+    const titleEl =
+      document.querySelector("ytmusic-player-bar .title") ||
+      document.querySelector("yt-formatted-string.title") ||
+      document.querySelector(".title");
+
+    const artistEl =
+      document.querySelector("ytmusic-player-bar .byline") ||
+      document.querySelector("yt-formatted-string.byline") ||
+      document.querySelector(".byline");
+
     const titleEl = document.querySelector("yt-formatted-string.title") || document.querySelector(".title");
     const artistEl = document.querySelector("yt-formatted-string.byline") || document.querySelector(".byline");
     return {
@@ -24,6 +44,14 @@
   }
 
   function readCurrentTime() {
+    const media = getMediaElement();
+    if (media && Number.isFinite(media.currentTime)) {
+      return media.currentTime;
+    }
+
+    const elapsed = document.querySelector(".time-info")?.textContent || "";
+    const match = elapsed.match(/(\d+:\d+)/);
+    return match ? parseTime(match[1]) : 0;
     const bar = document.querySelector("#progress-bar");
     if (!bar) return 0;
     const value = Number(bar.getAttribute("value") || 0);
@@ -46,6 +74,9 @@
   }
 
   function readIsPlaying() {
+    const media = getMediaElement();
+    if (media) return !media.paused;
+
     const playPause = document.querySelector("tp-yt-paper-icon-button.play-pause-button");
     const title = playPause?.getAttribute("title") || "";
     return !/play/i.test(title);
@@ -56,6 +87,7 @@
     const dom = readDomFallback();
     const title = media?.title || dom.title;
     const artist = media?.artist || dom.artist;
+
     return {
       source: "ytm-content",
       title,
@@ -68,6 +100,12 @@
 
   function shouldSend(payload) {
     if (!payload.title) return false;
+
+    const key = `${payload.title}|${payload.artist}|${Math.floor(payload.currentTimeSec)}|${payload.isPlaying}`;
+    const now = Date.now();
+
+    if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
+
     const key = `${payload.title}|${payload.artist}|${Math.floor(payload.currentTimeSec)}|${payload.isPlaying}`;
     const now = Date.now();
     if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
@@ -84,4 +122,5 @@
 
   setInterval(tick, POLL_MS);
   document.addEventListener("visibilitychange", tick);
+  window.addEventListener("yt-navigate-finish", tick);
 })();
