@@ -1,5 +1,5 @@
 (() => {
-  const POLL_MS = 500;
+  const POLL_MS = 250;
   const state = {
     lastPayloadKey: "",
     lastSentAt: 0,
@@ -7,20 +7,22 @@
   };
 
   function getMediaElement() {
-    if (state.mediaEl && document.contains(state.mediaEl)) return state.mediaEl;
+    if (state.mediaEl && document.contains(state.mediaEl)) {
+      return state.mediaEl;
+    }
+
     state.mediaEl = document.querySelector("video") || document.querySelector("audio");
     return state.mediaEl;
   }
 
-    lastSentAt: 0
-  };
-
   function readMediaSession() {
     const metadata = navigator.mediaSession?.metadata;
     if (!metadata) return null;
+
     return {
       title: (metadata.title || "").trim(),
-      artist: (metadata.artist || "").trim()
+      artist: (metadata.artist || "").trim(),
+      album: (metadata.album || "").trim()
     };
   }
 
@@ -35,12 +37,21 @@
       document.querySelector("yt-formatted-string.byline") ||
       document.querySelector(".byline");
 
-    const titleEl = document.querySelector("yt-formatted-string.title") || document.querySelector(".title");
-    const artistEl = document.querySelector("yt-formatted-string.byline") || document.querySelector(".byline");
     return {
       title: (titleEl?.textContent || "").trim(),
       artist: (artistEl?.textContent || "").trim()
     };
+  }
+
+  function parseTime(text) {
+    const parts = String(text)
+      .split(":")
+      .map((value) => Number(value));
+
+    if (!parts.length || parts.some(Number.isNaN)) return 0;
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return 0;
   }
 
   function readCurrentTime() {
@@ -49,36 +60,28 @@
       return media.currentTime;
     }
 
-    const elapsed = document.querySelector(".time-info")?.textContent || "";
-    const match = elapsed.match(/(\d+:\d+)/);
+    const elapsedText = document.querySelector(".time-info")?.textContent || "";
+    const match = elapsedText.match(/(\d+:\d+(?::\d+)?)/);
     return match ? parseTime(match[1]) : 0;
-    const bar = document.querySelector("#progress-bar");
-    if (!bar) return 0;
-    const value = Number(bar.getAttribute("value") || 0);
-    const max = Number(bar.getAttribute("max") || 0);
-    if (!max || Number.isNaN(value) || Number.isNaN(max)) return 0;
-    const durationText = document.querySelector(".time-info")?.textContent || "";
-    // Fallback: rely on percent only when duration unknown.
-    const match = durationText.match(/(\d+:\d+)\s*\/\s*(\d+:\d+)/);
-    if (!match) return 0;
-    const total = parseTime(match[2]);
-    return total * (value / max);
   }
 
-  function parseTime(text) {
-    const parts = text.split(":").map((x) => Number(x));
-    if (parts.some(Number.isNaN)) return 0;
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    return 0;
+  function readDuration() {
+    const media = getMediaElement();
+    if (media && Number.isFinite(media.duration) && media.duration > 0) {
+      return media.duration;
+    }
+
+    const timeInfo = document.querySelector(".time-info")?.textContent || "";
+    const match = timeInfo.match(/(\d+:\d+(?::\d+)?)\s*$/);
+    return match ? parseTime(match[1]) : 0;
   }
 
   function readIsPlaying() {
     const media = getMediaElement();
     if (media) return !media.paused;
 
-    const playPause = document.querySelector("tp-yt-paper-icon-button.play-pause-button");
-    const title = playPause?.getAttribute("title") || "";
+    const playPauseButton = document.querySelector("tp-yt-paper-icon-button.play-pause-button");
+    const title = playPauseButton?.getAttribute("title") || "";
     return !/play/i.test(title);
   }
 
@@ -87,12 +90,16 @@
     const dom = readDomFallback();
     const title = media?.title || dom.title;
     const artist = media?.artist || dom.artist;
+    const currentTimeSec = Math.max(0, Number(readCurrentTime().toFixed(2)));
+    const durationSec = Math.max(0, Number(readDuration().toFixed(2)));
 
     return {
       source: "ytm-content",
       title,
       artist,
-      currentTimeSec: Math.max(0, Number(readCurrentTime().toFixed(2))),
+      album: media?.album || "",
+      durationSec,
+      currentTimeSec,
       isPlaying: readIsPlaying(),
       observedAt: Date.now()
     };
@@ -101,14 +108,14 @@
   function shouldSend(payload) {
     if (!payload.title) return false;
 
-    const key = `${payload.title}|${payload.artist}|${Math.floor(payload.currentTimeSec)}|${payload.isPlaying}`;
+    const quantizedTime = Math.round(payload.currentTimeSec * 4) / 4;
+    const key = `${payload.title}|${payload.artist}|${payload.isPlaying}|${quantizedTime}`;
     const now = Date.now();
 
-    if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
+    if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) {
+      return false;
+    }
 
-    const key = `${payload.title}|${payload.artist}|${Math.floor(payload.currentTimeSec)}|${payload.isPlaying}`;
-    const now = Date.now();
-    if (key === state.lastPayloadKey && now - state.lastSentAt < POLL_MS) return false;
     state.lastPayloadKey = key;
     state.lastSentAt = now;
     return true;
@@ -123,4 +130,6 @@
   setInterval(tick, POLL_MS);
   document.addEventListener("visibilitychange", tick);
   window.addEventListener("yt-navigate-finish", tick);
+  window.addEventListener("focus", tick);
+  window.addEventListener("pageshow", tick);
 })();

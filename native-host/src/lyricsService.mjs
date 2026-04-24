@@ -1,8 +1,10 @@
+import { createLoadingLyricsResult, createMissingLyricsResult } from "./lyricsUtils.mjs";
+import { LrcLibProvider } from "./providers/lrcLibProvider.mjs";
 import { StaticLyricsProvider } from "./providers/staticLyricsProvider.mjs";
 
 export class LyricsService {
   constructor() {
-    this.provider = new StaticLyricsProvider();
+    this.providers = [new LrcLibProvider(), new StaticLyricsProvider()];
     this.cache = new Map();
     this.cacheSize = 100;
   }
@@ -21,18 +23,38 @@ export class LyricsService {
     }
   }
 
+  peekLyrics(song) {
+    return this.cache.get(this._songKey(song)) || null;
+  }
+
+  loadingLyrics() {
+    return createLoadingLyricsResult();
+  }
+
   async getLyrics(song) {
     const key = this._songKey(song);
     if (this.cache.has(key)) return this.cache.get(key);
 
-    const found = await this.provider.findLyrics(song);
-    const lines = found || [{ startMs: 0, text: `${song.title} - ${song.artist}` }];
+    for (const provider of this.providers) {
+      try {
+        const found = await provider.findLyrics(song);
+        if (!found?.lines?.length) continue;
 
-    this._setCache(key, lines);
-    return lines;
+        this._setCache(key, found);
+        return found;
+      } catch (error) {
+        console.warn("[lyrics] provider failed", error);
+      }
+    }
+
+    const missing = createMissingLyricsResult();
+    this._setCache(key, missing);
+    return missing;
   }
 
-  currentLine(lines, currentTimeSec) {
+  currentLineIndex(lines, currentTimeSec) {
+    if (!Array.isArray(lines) || !lines.length) return -1;
+
     const currentMs = Math.floor((currentTimeSec || 0) * 1000);
     let left = 0;
     let right = lines.length - 1;
@@ -48,6 +70,12 @@ export class LyricsService {
       }
     }
 
+    return answer;
+  }
+
+  currentLine(lines, currentTimeSec) {
+    const answer = this.currentLineIndex(lines, currentTimeSec);
+    if (answer < 0) return "";
     return lines[answer]?.text || "";
   }
 }

@@ -1,72 +1,106 @@
 # YouTube Music Floating Lyrics (Windows 11)
 
-一个面向 **Windows 11** 的低资源占用「悬浮歌词」项目（进行中）：
-- 在 Chrome 中播放 YouTube Music 时实时捕捉歌曲状态。
-- 在系统级悬浮窗显示同步歌词（中 / 英 / 日）。
-- 优先追求稳定性与低内存占用（RAM）。
+一个面向 Windows 11 的低占用悬浮歌词原型：
 
-## 当前进度
+- Chrome 扩展采集 `music.youtube.com` 的播放状态
+- 本地 Host 接收事件、拉取同步歌词并通过 SSE 推送
+- 桌面悬浮窗或浏览器 Overlay 实时显示 `artist / title / 当前秒数 / 当前歌词行`
 
-✅ 已实现 MVP 原型链路：
-1. Chrome 扩展采集播放状态并上报到 localhost。
-2. 本地 Host 服务接收事件并输出 SSE 流。
-3. Overlay 原型页面订阅 SSE 并实时显示当前歌词行。
-4. 新增静态歌词 Provider（本地 JSON）+ LRU 缓存 + 二分查找同步。
+## 当前状态
 
-> 当前歌词源是本地静态数据（`native-host/data/lyrics.json`），用于先完成稳定链路和低资源验证。
+现在不是只吃本地 `lyrics.json` 了。
 
-> 当前歌词为 mock 数据，用于先打通稳定链路；下一步接入真实歌词 provider。
+当前歌词策略是：
+
+1. 优先从在线同步歌词源抓取带时间轴的原文歌词
+2. 若在线源没有命中，再回退到本地样例歌词
+3. 若两边都没有命中，Overlay 会显示 `No synced lyrics found.`
+
+显示策略也已经改成：
+
+- 华语歌显示华语原文
+- 日语歌显示日语原文
+- 英文歌显示英文原文
+- 不额外做翻译
+- Overlay 本地自己按时间轴推进，不再只靠 Host 每秒推一次当前行
 
 ## 目录结构
 
 - `chrome-extension/`
-  - `manifest.json`、`content.js`、`background.js`
+  采集 YouTube Music 播放状态
 - `native-host/`
-  - `src/server.mjs`（轻量 HTTP + SSE 服务）
-  - `src/lyricsService.mjs`（缓存与同步）
-  - `src/providers/staticLyricsProvider.mjs`（本地歌词源）
-  - `data/lyrics.json`（示例中/英/日歌词）
+  本地 HTTP + SSE 服务，以及歌词 provider / 缓存 / 同步逻辑
 - `overlay-app/`
-  - `index.html`、`styles.css`、`overlay.js`
-  - `serve-overlay.mjs`（本地静态页面服务）
-- `docs/`
-  - 设计文档与里程碑
+  浏览器中的 Overlay 页面和本地静态服务
+- `desktop-overlay/`
+  Windows 桌面透明置顶悬浮窗
+- `scripts/smoke.mjs`
+  一键本地联调验证
 
----
+## 前置条件
 
-## 超详细使用说明（Windows + Chrome）
+1. 安装 Node.js 18+
+2. 安装 Chrome
+3. 能访问 `https://music.youtube.com`
 
-> 你刚提到不清楚怎么在 Chrome 打开 `index.html`，下面给你两种方式：**推荐方式 A（本地服务）**。
+## 常用命令
 
-### 0) 前置条件
-
-1. 安装 Node.js 18+（建议 LTS）
-2. 使用 Chrome 浏览器
-3. 可以访问 `https://music.youtube.com`
-
-### 1) 启动本地 Host（必须）
-- `overlay-app/`
-  - `index.html`、`styles.css`、`overlay.js`
-- `docs/`
-  - 设计文档与里程碑
-
-## 快速启动
-
-### 1) 启动本地 Host
+项目根目录执行：
 
 ```bash
-cd native-host
-npm run start
+npm run check
+npm run start:host
+npm run desktop
+npm run start:overlay
+npm run smoke
 ```
 
-看到下面日志说明成功：
+## 启动方法
+
+### 方式 A（推荐）：桌面悬浮歌词
+
+直接在项目根目录运行：
+
+```bash
+npm run desktop
+```
+
+预期日志：
+
+```text
+[desktop] reusing existing native host
+[desktop] launching desktop overlay
+```
+
+你会得到一个：
+
+- 在 Chrome 外部独立存在的桌面窗
+- 默认半透明
+- 默认点击穿透，不抢鼠标焦点
+- 默认置顶，适合边用别的 app 边看歌词
+
+桌面悬浮窗快捷键：
+
+- `Alt+Shift+M`：切换点击穿透 / 可交互模式
+- `Alt+Shift+Up`：提高不透明度
+- `Alt+Shift+Down`：降低不透明度
+- `Alt+Shift+C`：重置到底部居中
+- `Alt+Shift+H`：隐藏 / 显示
+- `Alt+Shift+Q`：退出桌面悬浮窗
+
+### 方式 B：浏览器 Overlay（调试用）
+
+#### 1) 启动 Host
+
+```bash
+npm run start:host
+```
+
+预期日志：
 
 ```text
 [native-host] listening on http://127.0.0.1:42819
 ```
-
-可选健康检查：
-默认监听：`http://127.0.0.1:42819`
 
 健康检查：
 
@@ -74,28 +108,15 @@ npm run start
 curl http://127.0.0.1:42819/health
 ```
 
-### 2) 安装 Chrome 扩展（必须）
+#### 2) 启动 Overlay 本地页面服务
 
-1. 在 Chrome 地址栏输入：`chrome://extensions`
-2. 右上角打开「开发者模式」
-3. 点击左上角「加载已解压的扩展程序」
-4. 选择项目目录里的 `chrome-extension/`
-5. 确认扩展已启用（开关为 On）
-
-### 3) 打开 Overlay 页面（两种方式）
-
-#### 方式 A（推荐）：本地页面服务打开
-
-> 这是最稳定、最不容易踩坑的方式。
-
-新开一个终端执行：
+另开一个终端：
 
 ```bash
-cd overlay-app
-npm run start
+npm run start:overlay
 ```
 
-看到日志：
+预期日志：
 
 ```text
 [overlay] open http://127.0.0.1:43100
@@ -107,93 +128,114 @@ npm run start
 http://127.0.0.1:43100
 ```
 
----
+#### 3) 安装 Chrome 扩展
 
-#### 方式 B（直接打开文件）
+1. 打开 `chrome://extensions`
+2. 打开右上角“开发者模式”
+3. 选择“加载已解压的扩展程序”
+4. 选择项目里的 `chrome-extension/`
+5. 确认扩展处于启用状态
 
-你也可以直接把下面路径拖进 Chrome：
-
-```text
-<项目绝对路径>/overlay-app/index.html
-```
-
-比如（示例）：
-
-```text
-file:///C:/your-folder/yt-music-floating-lyrics/overlay-app/index.html
-```
-
-如果这种方式打不开或不稳定，改用方式 A。
-
-### 4) 实际运行验证
+#### 4) 打开 YouTube Music 并播放
 
 1. 打开 `https://music.youtube.com`
 2. 播放任意歌曲
-3. 切回 Overlay 页面（`http://127.0.0.1:43100`）
-4. 你应看到：
-   - 顶部显示：`▶ artist · title · xx.xs`
-   - 下方显示实时歌词行
+3. 如果你走的是方式 A，就切回桌面上的悬浮歌词窗
+4. 如果你走的是方式 B，就切回 `http://127.0.0.1:43100`
 
----
+现在正常情况下你会看到：
 
-## 常见问题（你现在最可能遇到）
+- 顶部：`▶ artist · title · xx.xs`
+- 下方：当前时间对应的歌词原文
 
-### Q1: Chrome 不知道怎么打开 index.html
+如果在线同步歌词源命中，歌词会按时间轴实时变化。
 
-直接用 **方式 A**：
-1. `cd overlay-app && npm run start`
-2. Chrome 输入 `http://127.0.0.1:43100`
+桌面悬浮窗模式下，歌词会显示在 Chrome 外部；你切到其他窗口时它也会继续漂浮显示。
 
-### Q2: Overlay 页面显示 `Disconnected. Retrying...`
+## 一键 Smoke Test
 
-说明 Host 没启动或端口不通：
-- 确认 `native-host` 终端还在运行
-- 确认 `http://127.0.0.1:42819/health` 能返回 JSON
+```bash
+npm run smoke
+```
 
-### Q3: 页面开了但没歌词
+这个命令会自动：
 
-按顺序排查：
-1. 扩展是否已加载并启用
-2. 当前页面是否是 `music.youtube.com`
-3. 是否真的在播放（不是暂停）
-4. 歌曲是否命中本地静态歌词库（`native-host/data/lyrics.json`）
+1. 启动 `native-host`
+2. 启动 `overlay-app`
+3. 订阅 `/stream`
+4. 注入样例播放事件
+5. 验证是否真正收到了歌词行
 
----
+成功时会看到类似：
 
-## 性能与稳定策略（当前实现）
+```text
+[smoke] stream connected
+[smoke] received line: ...
+[smoke] pass
+```
 
-- 扩展优先读取 `<video>/<audio>` currentTime，减少频繁 DOM 解析。
-- Background 只保留最新事件（coalescing），降低重试队列内存。
-- Host 仅缓存最近歌曲歌词（LRU，默认 100 条）。
-- 歌词定位使用二分查找，避免逐行扫描开销。
-### 2) 加载 Chrome 扩展
+## 常见问题
 
-1. 打开 `chrome://extensions`
-2. 开启「开发者模式」
-3. 选择「加载已解压的扩展程序」
-4. 指向 `chrome-extension/`
+### Chrome 不知道怎么打开 `index.html`
 
-### 3) 打开 Overlay 原型
+不用手动折腾 `file:///.../index.html`。
 
-直接用浏览器打开 `overlay-app/index.html`，然后在 YouTube Music 播放歌曲。
+直接运行：
 
-## 性能与稳定策略（MVP）
+```bash
+npm run start:overlay
+```
 
-- 扩展每 500ms 采样并去重，减少消息风暴。
-- Host 只维护最近歌曲状态，避免无界内存增长。
-- Overlay 只在歌词行变化时更新文本。
-- 全部通信走 `localhost`，最小化权限与安全面。
+然后在 Chrome 打开：
+
+```text
+http://127.0.0.1:43100
+```
+
+### Overlay 显示 `Disconnected. Retrying...`
+
+按顺序检查：
+
+1. `npm run start:host` 是否还在运行
+2. `http://127.0.0.1:42819/health` 是否返回 JSON
+3. 防火墙或安全软件是否拦截了本地端口
+
+### 页面打开了但没有歌词
+
+按顺序检查：
+
+1. 扩展是否已正确加载
+2. 当前页面是否真的是 `music.youtube.com`
+3. 是否真的在播放而不是暂停
+4. 当前歌曲是否被在线同步歌词源收录
+
+需要说明的是：
+
+- 现在已经不是“只支持预设两首歌”
+- 但也还不能诚实地说“全世界任何歌都保证命中”
+- 是否有同步歌词，仍然取决于在线歌词库本身是否收录
+
+### 我想要在全屏 app 上面也看到歌词
+
+当前桌面悬浮窗已经是 Windows 独立置顶窗，正常窗口和很多“无边框全屏”应用上都可以浮在上面。
+
+但需要诚实说明：
+
+- 对真正的独占全屏程序，是否还能压在最上层，仍然取决于 Windows 合成器、显卡驱动和具体应用本身
+- 所以现阶段更稳的是普通窗口、最大化窗口、以及多数 borderless fullscreen 场景
+
+## 目前已经验证过的方向
+
+- 日语原文同步歌词
+- 华语原文同步歌词
+- 英文原文同步歌词
+- Overlay 本地时间推进，切歌后不会沿用上一首歌的歌词
+- Windows 独立桌面悬浮窗已跑通
+- 默认半透明 + 默认点击穿透已跑通
+- 已验证可显示在 Chrome 之外，并压在其他最大化窗口上方
 
 ## 下一步
 
-1. 接入真实歌词 provider（多源 + 评分匹配）
-2. 增加磁盘缓存（SQLite）
-3. 做 Windows 透明置顶窗口封装（Tauri/Electron）
-4. 完成内存与 CPU 压测基线
-
----
-
-详见：
-- [架构设计](docs/ARCHITECTURE.md)
-- [稳定性与低 RAM 清单](docs/STABILITY_RAM_GUIDE.md)
-- [里程碑规划](docs/MILESTONES.md)
+1. 增加磁盘缓存（SQLite），减少重复查词等待
+2. 增加更多歌词源，提高命中率
+3. 打包成可双击启动的 Windows 应用 / 托盘程序

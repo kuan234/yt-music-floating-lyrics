@@ -1,0 +1,17 @@
+{
+  "name": "yt-music-floating-lyrics",
+  "private": true,
+  "type": "module",
+  "main": "desktop-overlay/main.cjs",
+  "scripts": {
+    "check": "node --check chrome-extension/content.js && node --check chrome-extension/background.js && npm --prefix native-host run check && npm --prefix overlay-app run check && node --check desktop-overlay/main.cjs && node --check scripts/smoke.mjs && node --check scripts/start-desktop.mjs",
+    "start:host": "npm --prefix native-host run start",
+    "start:overlay": "npm --prefix overlay-app run start",
+    "start:desktop": "electron .",
+    "desktop": "node scripts/start-desktop.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "electron": "41.3.0"
+  }
+}

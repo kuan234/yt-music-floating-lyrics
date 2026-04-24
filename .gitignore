@@ -1,0 +1,6 @@
+.venv/
+node_modules/
+chrome-extension.pem
+chrome-extension.crx
+*.log
+*.pid

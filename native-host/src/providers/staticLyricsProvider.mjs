@@ -1,26 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createLyricsResult, normalizeSongText } from "../lyricsUtils.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LYRICS_FILE = path.resolve(__dirname, "../../data/lyrics.json");
 
-function normalizeText(input = "") {
-  return input
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/\((live|remix|ver\.?|version).*?\)/gi, "")
-    .replace(/feat\.?\s+.+$/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function scoreCandidate(song, item) {
-  const titleA = normalizeText(song.title);
-  const titleB = normalizeText(item.title);
-  const artistA = normalizeText(song.artist);
-  const artistB = normalizeText(item.artist);
+  const titleA = normalizeSongText(song.title);
+  const titleB = normalizeSongText(item.title);
+  const artistA = normalizeSongText(song.artist);
+  const artistB = normalizeSongText(item.artist);
 
   let score = 0;
   if (titleA === titleB) score += 70;
@@ -28,6 +19,12 @@ function scoreCandidate(song, item) {
 
   if (artistA === artistB) score += 30;
   else if (artistA && artistB && (artistA.includes(artistB) || artistB.includes(artistA))) score += 15;
+
+  if (song.durationSec && item.durationSec) {
+    const diff = Math.abs(Number(song.durationSec) - Number(item.durationSec));
+    if (diff <= 2) score += 20;
+    else if (diff <= 6) score += 10;
+  }
 
   return score;
 }
@@ -60,6 +57,12 @@ export class StaticLyricsProvider {
     }
 
     if (!best || bestScore < 55) return null;
-    return best.lines;
+
+    return createLyricsResult({
+      source: "static",
+      status: "ready",
+      synced: true,
+      lines: best.lines
+    });
   }
 }

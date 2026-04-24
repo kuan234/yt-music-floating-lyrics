@@ -1,12 +1,10 @@
 {
   "name": "ytm-floating-lyrics-host",
   "version": "0.2.0",
-  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
-    "check": "node --check src/server.mjs && node --check src/lyricsService.mjs && node --check src/providers/staticLyricsProvider.mjs"
-    "check": "node --check src/server.mjs"
+    "check": "node --check src/server.mjs && node --check src/lyricsService.mjs && node --check src/lyricsUtils.mjs && node --check src/providers/lrcLibProvider.mjs && node --check src/providers/staticLyricsProvider.mjs"
   }
 }

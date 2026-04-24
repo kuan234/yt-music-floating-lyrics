@@ -7,10 +7,6 @@ let isFlushing = false;
 let latestPayload = null;
 
 async function postPayload(payload) {
-
-let backoffMs = RETRY_BASE_MS;
-
-async function sendToHost(payload) {
   const response = await fetch(HOST, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -33,7 +29,8 @@ async function flushLoop() {
     try {
       await postPayload(payload);
       backoffMs = RETRY_BASE_MS;
-    } catch {
+    } catch (error) {
+      console.warn("[background] failed to post playback event", error);
       latestPayload = payload;
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       backoffMs = Math.min(RETRY_MAX_MS, backoffMs * 2);
@@ -46,18 +43,7 @@ async function flushLoop() {
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== "PLAYBACK_EVENT" || !message.payload) return;
 
-  // Coalescing: always keep the newest payload only.
+  // Coalescing: only keep the newest payload while the host is unavailable.
   latestPayload = message.payload;
   flushLoop();
-
-  backoffMs = RETRY_BASE_MS;
-}
-
-chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type !== "PLAYBACK_EVENT") return;
-
-  sendToHost(message.payload).catch(async () => {
-    await new Promise((resolve) => setTimeout(resolve, backoffMs));
-    backoffMs = Math.min(4000, backoffMs * 2);
-  });
 });

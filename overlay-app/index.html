@@ -3,13 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Floating Lyrics Overlay (Prototype)</title>
+    <title>Floating Lyrics Overlay</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main id="overlay">
-      <div id="meta"></div>
-      <div id="line">等待歌曲播放...</div>
+      <section id="lyrics-card" aria-live="polite">
+        <div id="meta"></div>
+        <div id="line">Waiting for playback...</div>
+      </section>
     </main>
     <script src="overlay.js"></script>
   </body>
