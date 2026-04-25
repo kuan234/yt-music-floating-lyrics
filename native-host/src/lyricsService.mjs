@@ -1,54 +1,110 @@
+import os from "node:os";
+import path from "node:path";
 import { createLoadingLyricsResult, createMissingLyricsResult } from "./lyricsUtils.mjs";
+import { LyricsCacheStore } from "./lyricsCacheStore.mjs";
+import { KugouProvider } from "./providers/kugouProvider.mjs";
 import { LrcLibProvider } from "./providers/lrcLibProvider.mjs";
+import { QqMusicProvider } from "./providers/qqMusicProvider.mjs";
 import { StaticLyricsProvider } from "./providers/staticLyricsProvider.mjs";
 
 export class LyricsService {
-  constructor() {
-    this.providers = [new LrcLibProvider(), new StaticLyricsProvider()];
-    this.cache = new Map();
-    this.cacheSize = 100;
+  constructor({
+    cachePath,
+    logger = console
+  } = {}) {
+    this.logger = logger;
+    this.localProviders = [new StaticLyricsProvider()];
+    this.remoteProviders = [
+      new LrcLibProvider(),
+      new QqMusicProvider(),
+      new KugouProvider()
+    ];
+    this.cacheStore = new LyricsCacheStore({
+      filePath: cachePath || path.join(
+        process.env.LOCALAPPDATA || os.tmpdir(),
+        "YT Music Floating Lyrics",
+        "lyrics-cache.json"
+      ),
+      logger
+    });
+    this.cache = this.cacheStore.entries;
   }
 
   _songKey(song) {
     return `${(song.title || "").trim().toLowerCase()}::${(song.artist || "").trim().toLowerCase()}`;
   }
 
-  _setCache(key, value) {
-    if (this.cache.has(key)) this.cache.delete(key);
-    this.cache.set(key, value);
-
-    if (this.cache.size > this.cacheSize) {
-      const oldest = this.cache.keys().next().value;
-      this.cache.delete(oldest);
-    }
+  async ready() {
+    await this.cacheStore.ready();
   }
 
   peekLyrics(song) {
-    return this.cache.get(this._songKey(song)) || null;
+    return this.cacheStore.get(this._songKey(song)) || null;
   }
 
   loadingLyrics() {
     return createLoadingLyricsResult();
   }
 
-  async getLyrics(song) {
-    const key = this._songKey(song);
-    if (this.cache.has(key)) return this.cache.get(key);
-
-    for (const provider of this.providers) {
+  async _findLyrics(song) {
+    for (const provider of this.localProviders) {
       try {
         const found = await provider.findLyrics(song);
-        if (!found?.lines?.length) continue;
-
-        this._setCache(key, found);
-        return found;
+        if (found?.lines?.length) return found;
       } catch (error) {
-        console.warn("[lyrics] provider failed", error);
+        this.logger.warn?.("[lyrics] local provider failed", error);
       }
     }
 
+    if (!this.remoteProviders.length) return null;
+
+    return await new Promise((resolve) => {
+      let pending = this.remoteProviders.length;
+      let settled = false;
+
+      const finish = (value = null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      for (const provider of this.remoteProviders) {
+        Promise.resolve(provider.findLyrics(song))
+          .then((found) => {
+            if (settled) return;
+
+            if (found?.lines?.length) {
+              finish(found);
+              return;
+            }
+
+            pending -= 1;
+            if (pending <= 0) finish(null);
+          })
+          .catch((error) => {
+            this.logger.warn?.("[lyrics] remote provider failed", error);
+            pending -= 1;
+            if (pending <= 0) finish(null);
+          });
+      }
+    });
+  }
+
+  async getLyrics(song) {
+    await this.ready();
+
+    const key = this._songKey(song);
+    const cached = this.cacheStore.get(key);
+    if (cached) return cached;
+
+    const found = await this._findLyrics(song);
+    if (found?.lines?.length) {
+      this.cacheStore.set(key, found);
+      return found;
+    }
+
     const missing = createMissingLyricsResult();
-    this._setCache(key, missing);
+    this.cacheStore.set(key, missing);
     return missing;
   }
 
@@ -58,7 +114,7 @@ export class LyricsService {
     const currentMs = Math.floor((currentTimeSec || 0) * 1000);
     let left = 0;
     let right = lines.length - 1;
-    let answer = 0;
+    let answer = -1;
 
     while (left <= right) {
       const mid = (left + right) >> 1;
@@ -77,5 +133,9 @@ export class LyricsService {
     const answer = this.currentLineIndex(lines, currentTimeSec);
     if (answer < 0) return "";
     return lines[answer]?.text || "";
+  }
+
+  async flushCache() {
+    await this.cacheStore.flush();
   }
 }

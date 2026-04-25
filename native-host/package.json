@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
-    "check": "node --check src/server.mjs && node --check src/lyricsService.mjs && node --check src/lyricsUtils.mjs && node --check src/providers/lrcLibProvider.mjs && node --check src/providers/staticLyricsProvider.mjs"
+    "check": "node --check src/server.mjs && node --check src/lyricsService.mjs && node --check src/lyricsUtils.mjs && node --check src/lyricsCacheStore.mjs && node --check src/providers/providerUtils.mjs && node --check src/providers/lrcLibProvider.mjs && node --check src/providers/qqMusicProvider.mjs && node --check src/providers/kugouProvider.mjs && node --check src/providers/staticLyricsProvider.mjs"
   }
 }

@@ -7,6 +7,13 @@
   --panel-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
   --tool-bg: rgba(8, 12, 20, 0.42);
   --tool-border: rgba(255, 255, 255, 0.12);
+  --settings-bg: rgba(7, 10, 18, 0.9);
+  --settings-border: rgba(255, 255, 255, 0.12);
+  --settings-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
+  --font-stack: "Segoe UI", "Microsoft YaHei UI", "Yu Gothic UI", sans-serif;
+  --line-font-size: 42px;
+  --text-offset-x: 0px;
+  --text-offset-y: 0px;
 }
 
 html,
@@ -21,6 +28,12 @@ body {
   background: transparent;
   overflow: hidden;
   user-select: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
 }
 
 #overlay {
@@ -87,15 +100,91 @@ html.interactive-mode #window-tools {
   text-align: right;
 }
 
-#reset-size {
-  width: 28px;
-  height: 28px;
+#window-tools button,
+.button-row button,
+#close-settings {
   border: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-main);
-  font-size: 16px;
   cursor: pointer;
+}
+
+#window-tools button {
+  min-width: 54px;
+  height: 28px;
+  padding: 0 12px;
+}
+
+#settings-panel {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  width: min(320px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: var(--settings-bg);
+  border: 1px solid var(--settings-border);
+  box-shadow: var(--settings-shadow);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+#settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#settings-header strong {
+  color: var(--text-main);
+  letter-spacing: 0.02em;
+}
+
+#close-settings {
+  padding: 6px 12px;
+}
+
+.setting-row,
+.setting-group {
+  display: grid;
+  gap: 8px;
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+
+.setting-row input[type="range"],
+.setting-row select {
+  width: 100%;
+}
+
+.setting-row output {
+  color: var(--text-main);
+  font-size: 12px;
+  text-align: right;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button-row button {
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+#position-buttons button.active {
+  background: rgba(125, 198, 255, 0.24);
+}
+
+#lyrics-copy {
+  transform: translate(var(--text-offset-x), var(--text-offset-y));
 }
 
 #meta {
@@ -108,7 +197,8 @@ html.interactive-mode #window-tools {
 
 #line {
   color: var(--text-main);
-  font-size: clamp(22px, min(4.2vw, 12vh), 54px);
+  font-family: var(--font-stack);
+  font-size: var(--line-font-size);
   line-height: 1.22;
   font-weight: 700;
   text-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
@@ -140,4 +230,25 @@ html.interactive-mode #resize-handle {
 
 html.resize-active #resize-handle {
   opacity: 1;
+}
+
+@media (max-width: 900px) {
+  #overlay {
+    padding: 18px;
+  }
+
+  #lyrics-card {
+    padding: 16px 18px 18px;
+    border-radius: 24px;
+  }
+
+  #settings-panel {
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  #line {
+    font-size: min(var(--line-font-size), 12vw);
+  }
 }

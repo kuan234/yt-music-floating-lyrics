@@ -1,216 +1,70 @@
 import {
   createLyricsResult,
-  normalizeSongText,
   parseSyncedLyrics
 } from "../lyricsUtils.mjs";
+import {
+  createStructuredSearchQueries,
+  fetchWithTimeout,
+  rankCandidates
+} from "./providerUtils.mjs";
 
 const API_BASE = "https://lrclib.net/api";
-const REQUEST_TIMEOUT_MS = 40000;
-const MAX_QUERY_VARIANTS = 8;
-
-function compactWhitespace(value = "") {
-  return String(value)
-    .normalize("NFKC")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function cleanupQueryText(value = "") {
-  return compactWhitespace(value)
-    .replace(/\[[^\]]*]/g, " ")
-    .replace(/\((live|remix|ver\.?|version|official|audio|video|mv|ost|opening|ending).*?\)/gi, " ")
-    .replace(/feat\.?\s+.+$/i, " ")
-    .replace(/\s+-\s+topic$/i, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function dedupeStrings(values) {
-  const seen = new Set();
-  const result = [];
-
-  for (const value of values) {
-    const normalized = compactWhitespace(value);
-    if (!normalized) continue;
-
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(normalized);
-  }
-
-  return result;
-}
-
-function titleVariants(title = "") {
-  const cleaned = cleanupQueryText(title);
-  const normalized = normalizeSongText(title);
-  const values = [
-    title,
-    cleaned,
-    cleaned.replace(/\s+-\s+.*$/, "").trim(),
-    cleaned.replace(/\s*\/\s*.*$/, "").trim(),
-    normalized
-  ];
-
-  return dedupeStrings(values);
-}
-
-function artistVariants(artist = "") {
-  const cleaned = cleanupQueryText(artist);
-  const normalized = normalizeSongText(artist);
-  const primary = cleaned.split(/\s*(?:,|&|\/| x | × |、|;| feat\.?| ft\.?)\s*/i)[0];
-
-  return dedupeStrings([artist, cleaned, primary, normalized]);
-}
-
-function albumVariants(album = "") {
-  const cleaned = cleanupQueryText(album);
-  return dedupeStrings([album, cleaned]);
-}
-
-function durationScore(song, item) {
-  const songDuration = Number(song.durationSec || 0);
-  const itemDuration = Number(item.duration || 0);
-
-  if (!songDuration || !itemDuration) return 0;
-
-  const diff = Math.abs(songDuration - itemDuration);
-  if (diff <= 1.5) return 30;
-  if (diff <= 4) return 22;
-  if (diff <= 8) return 12;
-  if (diff <= 15) return 4;
-  if (diff <= 30) return -8;
-  return -20;
-}
-
-function titleScore(song, item) {
-  const songTitle = normalizeSongText(song.title);
-  const itemTitle = normalizeSongText(item.trackName || item.name);
-
-  if (!songTitle || !itemTitle) return 0;
-  if (songTitle === itemTitle) return 80;
-  if (songTitle.includes(itemTitle) || itemTitle.includes(songTitle)) return 50;
-  return 0;
-}
-
-function artistScore(song, item) {
-  const songArtist = normalizeSongText(song.artist);
-  const itemArtist = normalizeSongText(item.artistName);
-
-  if (!songArtist || !itemArtist) return 0;
-  if (songArtist === itemArtist) return 45;
-  if (songArtist.includes(itemArtist) || itemArtist.includes(songArtist)) return 25;
-
-  const songParts = songArtist.split(/\s+/).filter(Boolean);
-  const itemParts = itemArtist.split(/\s+/).filter(Boolean);
-  const overlap = songParts.filter((part) => itemParts.includes(part)).length;
-  return overlap ? 10 : 0;
-}
-
-function albumScore(song, item) {
-  const songAlbum = normalizeSongText(song.album);
-  const itemAlbum = normalizeSongText(item.albumName);
-
-  if (!songAlbum || !itemAlbum) return 0;
-  if (songAlbum === itemAlbum) return 15;
-  if (songAlbum.includes(itemAlbum) || itemAlbum.includes(songAlbum)) return 8;
-  return 0;
-}
-
-function scoreCandidate(song, item) {
-  let score = 0;
-  score += titleScore(song, item);
-  score += artistScore(song, item);
-  score += albumScore(song, item);
-  score += durationScore(song, item);
-  score += item.syncedLyrics ? 35 : -40;
-  score += item.instrumental ? -120 : 0;
-  return score;
-}
-
-function createSearchQueries(song) {
-  const titles = titleVariants(song.title).slice(0, 4);
-  const artists = artistVariants(song.artist).slice(0, 3);
-  const albums = albumVariants(song.album).slice(0, 2);
-  const queries = [];
-
-  for (const title of titles) {
-    for (const artist of artists.length ? artists : [""]) {
-      queries.push({
-        track_name: title,
-        artist_name: artist,
-        album_name: albums[0] || "",
-        duration: song.durationSec ? String(Math.round(song.durationSec)) : ""
-      });
-
-      if (queries.length >= MAX_QUERY_VARIANTS) {
-        return queries;
-      }
-    }
-
-    queries.push({
-      track_name: title,
-      artist_name: "",
-      album_name: albums[0] || "",
-      duration: song.durationSec ? String(Math.round(song.durationSec)) : ""
-    });
-
-    if (queries.length >= MAX_QUERY_VARIANTS) {
-      return queries;
-    }
-  }
-
-  return queries;
-}
+const REQUEST_TIMEOUT_MS = 9000;
+const MAX_QUERY_VARIANTS = 6;
+const QUERY_BATCH_SIZE = 3;
 
 async function fetchJson(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        accept: "application/json",
-        "user-agent": "yt-music-floating-lyrics/0.4"
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`lrclib ${response.status}`);
+  const response = await fetchWithTimeout(url, {
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    headers: {
+      accept: "application/json",
+      "user-agent": "yt-music-floating-lyrics/0.5"
     }
+  });
 
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
+  if (!response.ok) {
+    throw new Error(`lrclib ${response.status}`);
   }
+
+  return await response.json();
+}
+
+async function searchQuery(query) {
+  const url = new URL(`${API_BASE}/search`);
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const response = await fetchJson(url);
+  return Array.isArray(response) ? response : [];
 }
 
 export class LrcLibProvider {
   async search(song) {
     const results = new Map();
+    const queries = createStructuredSearchQueries(song, { max: MAX_QUERY_VARIANTS });
 
-    for (const query of createSearchQueries(song)) {
-      const url = new URL(`${API_BASE}/search`);
-      for (const [key, value] of Object.entries(query)) {
-        if (value) {
-          url.searchParams.set(key, value);
-        }
-      }
+    for (let index = 0; index < queries.length; index += QUERY_BATCH_SIZE) {
+      const batch = queries.slice(index, index + QUERY_BATCH_SIZE);
+      const responses = await Promise.allSettled(batch.map((query) => searchQuery(query)));
 
-      const response = await fetchJson(url);
-      const items = Array.isArray(response) ? response : [];
+      for (const response of responses) {
+        if (response.status !== "fulfilled") continue;
 
-      for (const item of items) {
-        const cacheKey = [
-          normalizeSongText(item.trackName || item.name),
-          normalizeSongText(item.artistName),
-          Number(item.duration || 0)
-        ].join("|");
+        for (const item of response.value) {
+          const cacheKey = [
+            item.id || "",
+            item.trackName || item.name || "",
+            item.artistName || "",
+            Number(item.duration || 0)
+          ].join("|");
 
-        if (!results.has(cacheKey)) {
-          results.set(cacheKey, item);
+          if (!results.has(cacheKey)) {
+            results.set(cacheKey, item);
+          }
         }
       }
 
@@ -224,9 +78,14 @@ export class LrcLibProvider {
     const results = await this.search(song);
     if (!results.length) return null;
 
-    const best = [...results]
-      .sort((left, right) => scoreCandidate(song, right) - scoreCandidate(song, left))
-      .find((item) => item?.syncedLyrics);
+    const best = rankCandidates(song, results, (item) => ({
+      title: item.trackName || item.name,
+      artist: item.artistName,
+      album: item.albumName,
+      durationSec: Number(item.duration || 0),
+      hasSyncedLyrics: Boolean(item.syncedLyrics),
+      extraScore: item.instrumental ? -120 : 0
+    }), { limit: 6 }).find((item) => item?.syncedLyrics);
 
     if (!best?.syncedLyrics) return null;
 

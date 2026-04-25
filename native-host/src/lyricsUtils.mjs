@@ -1,19 +1,19 @@
 const CREDIT_PREFIXES = [
-  "词",
-  "詞",
-  "曲",
-  "作词",
-  "作詞",
-  "作曲",
-  "编曲",
-  "編曲",
-  "制作人",
-  "製作人",
-  "合声",
-  "合聲",
-  "录音",
-  "錄音",
-  "混音",
+  "\u8bcd",
+  "\u8a5e",
+  "\u66f2",
+  "\u4f5c\u8bcd",
+  "\u4f5c\u8a5e",
+  "\u4f5c\u66f2",
+  "\u7f16\u66f2",
+  "\u7de8\u66f2",
+  "\u5236\u4f5c\u4eba",
+  "\u88fd\u4f5c\u4eba",
+  "\u5408\u5531",
+  "\u5408\u8072",
+  "\u5f55\u97f3",
+  "\u9304\u97f3",
+  "\u6df7\u97f3",
   "guitar",
   "bass",
   "drums",
@@ -25,24 +25,35 @@ const CREDIT_PREFIXES = [
   "produced by"
 ];
 
+const XML_ENTITY_MAP = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'"
+};
+
 function timeFractionToMs(fraction = "") {
   if (!fraction) return 0;
   return Math.round(Number(`0.${fraction}`) * 1000);
-}
-
-function isCreditLine(text, startMs) {
-  if (startMs > 30000) return false;
-
-  const normalized = text.trim().toLowerCase();
-  return CREDIT_PREFIXES.some((prefix) => normalized.startsWith(prefix.toLowerCase())) &&
-    /[:：]/.test(normalized);
 }
 
 function cleanupLyricText(text) {
   return String(text || "")
     .replace(/\r/g, "")
     .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
+}
+
+export function isIgnorableLyricLine(text, startMs) {
+  if (startMs > 30000) return false;
+
+  const normalized = cleanupLyricText(text).toLowerCase();
+  if (!normalized) return true;
+
+  return CREDIT_PREFIXES.some((prefix) => normalized.startsWith(prefix.toLowerCase())) &&
+    /[:\uff1a]/.test(normalized);
 }
 
 export function normalizeSongText(input = "") {
@@ -50,9 +61,9 @@ export function normalizeSongText(input = "") {
     .normalize("NFKC")
     .toLowerCase()
     .replace(/\[[^\]]*]/g, " ")
-    .replace(/\((live|remix|ver\.?|version|official|audio|video|mv).*?\)/gi, " ")
+    .replace(/\((live|remix|ver\.?|version|official|audio|video|mv|ost|opening|ending).*?\)/gi, " ")
     .replace(/feat\.?\s+.+$/i, " ")
-    .replace(/[‐‑–—]/g, "-")
+    .replace(/[\u2010\u2011\u2013\u2014]/g, "-")
     .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -71,6 +82,7 @@ export function createLyricsResult({
       text: cleanupLyricText(line.text)
     }))
     .filter((line) => line.text)
+    .filter((line) => !isIgnorableLyricLine(line.text, line.startMs))
     .sort((a, b) => a.startMs - b.startMs)
     .filter((line, index, items) => {
       if (index === 0) return true;
@@ -104,6 +116,40 @@ export function createMissingLyricsResult() {
   });
 }
 
+export function decodeXmlEntities(input = "") {
+  return String(input).replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos);/gi, (match, entity) => {
+    const key = String(entity).toLowerCase();
+
+    if (key in XML_ENTITY_MAP) {
+      return XML_ENTITY_MAP[key];
+    }
+
+    if (key.startsWith("#x")) {
+      return String.fromCodePoint(Number.parseInt(key.slice(2), 16));
+    }
+
+    if (key.startsWith("#")) {
+      return String.fromCodePoint(Number.parseInt(key.slice(1), 10));
+    }
+
+    return match;
+  });
+}
+
+export function karaokeStructuredToLines(karaokeLines = []) {
+  return createLyricsResult({
+    source: "karaoke",
+    status: "ready",
+    synced: true,
+    lines: karaokeLines.map((line) => ({
+      startMs: Math.max(0, Number(line?.start || 0)),
+      text: Array.isArray(line?.content)
+        ? line.content.map((part) => part?.content || "").join("")
+        : String(line?.content || "")
+    }))
+  }).lines;
+}
+
 export function parseSyncedLyrics(lrcText) {
   const lines = [];
   const rawLines = String(lrcText || "").split(/\n/);
@@ -121,8 +167,7 @@ export function parseSyncedLyrics(lrcText) {
         Number(seconds) * 1000 +
         timeFractionToMs(fraction);
 
-      if (!Number.isFinite(startMs) || isCreditLine(text, startMs)) continue;
-
+      if (!Number.isFinite(startMs)) continue;
       lines.push({ startMs, text });
     }
   }

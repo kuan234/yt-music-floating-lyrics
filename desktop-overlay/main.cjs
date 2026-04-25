@@ -15,6 +15,7 @@ const {
 const PLAYER_URL = "https://music.youtube.com/";
 const HOST_PORT = 42819;
 const HOST_URL = `http://127.0.0.1:${HOST_PORT}`;
+const WINDOW_ICON_PATH = path.join(__dirname, "assets", "icon.png");
 const PLAYER_WIDTH = 1420;
 const PLAYER_HEIGHT = 920;
 const WINDOW_WIDTH_MIN = 420;
@@ -28,6 +29,17 @@ const WINDOW_OPACITY_DEFAULT = 0.88;
 const WINDOW_OPACITY_STEP = 0.05;
 const WINDOW_OPACITY_MIN = 0.45;
 const WINDOW_OPACITY_MAX = 1;
+const FONT_SIZE_MIN = 24;
+const FONT_SIZE_MAX = 72;
+const FONT_SIZE_DEFAULT = 42;
+const TEXT_OFFSET_MIN = -220;
+const TEXT_OFFSET_MAX = 220;
+const FONT_PRESETS = {
+  default: '"Segoe UI", "Microsoft YaHei UI", "Yu Gothic UI", sans-serif',
+  serif: '"Georgia", "Times New Roman", "Noto Serif JP", serif',
+  compact: '"Bahnschrift", "Segoe UI Semibold", "Microsoft YaHei UI", sans-serif'
+};
+const VERTICAL_ANCHORS = new Set(["top", "center", "bottom"]);
 
 const SHORTCUTS = {
   toggleMousePassthrough: "Alt+Shift+M",
@@ -48,6 +60,17 @@ const STARTUP_LOG = path.join(os.tmpdir(), "ytm-floating-lyrics.startup.log");
 let overlaySettingsPath = "";
 let overlaySettingsSaveTimer = null;
 let overlayBoundsPreference = null;
+let overlayPreferences = defaultOverlayPreferences();
+
+function defaultOverlayPreferences() {
+  return {
+    fontPreset: "default",
+    fontSizePx: FONT_SIZE_DEFAULT,
+    textOffsetX: 0,
+    textOffsetY: 0,
+    verticalAnchor: "bottom"
+  };
+}
 
 function writeStartupLog(message) {
   try {
@@ -128,13 +151,49 @@ function recommendedBounds() {
   return { x, y, width, height: WINDOW_HEIGHT_DEFAULT };
 }
 
+function sanitizeOverlayPreferences(input = {}) {
+  const defaults = defaultOverlayPreferences();
+  const fontPreset = typeof input.fontPreset === "string" && FONT_PRESETS[input.fontPreset]
+    ? input.fontPreset
+    : defaults.fontPreset;
+  const verticalAnchor = typeof input.verticalAnchor === "string" && VERTICAL_ANCHORS.has(input.verticalAnchor)
+    ? input.verticalAnchor
+    : defaults.verticalAnchor;
+
+  return {
+    fontPreset,
+    fontSizePx: clamp(Number(input.fontSizePx || defaults.fontSizePx), FONT_SIZE_MIN, FONT_SIZE_MAX),
+    textOffsetX: clamp(Number(input.textOffsetX || 0), TEXT_OFFSET_MIN, TEXT_OFFSET_MAX),
+    textOffsetY: clamp(Number(input.textOffsetY || 0), TEXT_OFFSET_MIN, TEXT_OFFSET_MAX),
+    verticalAnchor
+  };
+}
+
+function anchoredBoundsForPreference(anchor, bounds = null) {
+  const workArea = displayWorkAreaForBounds(bounds);
+  const fitted = fitBoundsToWorkArea(bounds || overlayBoundsPreference || recommendedBounds(), workArea);
+  const x = Math.round(workArea.x + (workArea.width - fitted.width) / 2);
+  let y = fitted.y;
+
+  if (anchor === "top") {
+    y = workArea.y + WINDOW_WORKAREA_MARGIN;
+  } else if (anchor === "center") {
+    y = workArea.y + Math.round((workArea.height - fitted.height) / 2);
+  } else {
+    y = workArea.y + workArea.height - fitted.height - WINDOW_BOTTOM_MARGIN;
+  }
+
+  return fitBoundsToWorkArea({ ...fitted, x, y }, workArea);
+}
+
 function currentOverlaySettingsSnapshot() {
   return {
     bounds: overlayWindow && !overlayWindow.isDestroyed()
       ? overlayWindow.getBounds()
       : overlayBoundsPreference || recommendedBounds(),
     opacity: overlayOpacity,
-    mousePassthrough
+    mousePassthrough,
+    preferences: overlayPreferences
   };
 }
 
@@ -187,9 +246,12 @@ function loadOverlaySettings() {
     if (typeof parsed?.mousePassthrough === "boolean") {
       mousePassthrough = parsed.mousePassthrough;
     }
+
+    overlayPreferences = sanitizeOverlayPreferences(parsed?.preferences || {});
   } catch (error) {
     log(`failed to load overlay settings: ${error.message}`);
     overlayBoundsPreference = recommendedBounds();
+    overlayPreferences = defaultOverlayPreferences();
   }
 }
 
@@ -202,7 +264,8 @@ function emitOverlayState() {
     interactive: !mousePassthrough,
     opacity: overlayOpacity,
     bounds,
-    limits: overlaySizeLimits(bounds)
+    limits: overlaySizeLimits(bounds),
+    preferences: overlayPreferences
   });
 }
 
@@ -270,9 +333,35 @@ function setOverlayOpacity(nextOpacity) {
   applyWindowMode();
 }
 
+function applyOverlayAnchor(anchor, { announce = false } = {}) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  setOverlayBounds(anchoredBoundsForPreference(anchor, overlayWindow.getBounds()), { announce });
+}
+
+function updateOverlayPreferences(nextPreferences = {}) {
+  const previousAnchor = overlayPreferences.verticalAnchor;
+  overlayPreferences = sanitizeOverlayPreferences({
+    ...overlayPreferences,
+    ...nextPreferences
+  });
+  scheduleOverlaySettingsSave();
+
+  if (overlayPreferences.verticalAnchor !== previousAnchor) {
+    applyOverlayAnchor(overlayPreferences.verticalAnchor, { announce: true });
+  } else {
+    emitOverlayState();
+  }
+}
+
+function resetOverlayStyle() {
+  overlayPreferences = defaultOverlayPreferences();
+  scheduleOverlaySettingsSave();
+  applyOverlayAnchor(overlayPreferences.verticalAnchor, { announce: true });
+}
+
 function resetOverlayPosition() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  setOverlayBounds(recommendedBounds());
+  setOverlayBounds(anchoredBoundsForPreference(overlayPreferences.verticalAnchor, recommendedBounds()));
   log("overlay position reset");
 }
 
@@ -318,7 +407,10 @@ async function startHostBridge() {
   const { startLyricsServer } = await import(serverModuleUrl);
 
   try {
-    hostBridge = await startLyricsServer({ port: HOST_PORT });
+    hostBridge = await startLyricsServer({
+      port: HOST_PORT,
+      cachePath: path.join(app.getPath("userData"), "lyrics-cache.json")
+    });
     log(`native host ready at ${hostBridge.url}`);
     return;
   } catch (error) {
@@ -376,6 +468,7 @@ function createPlayerWindow() {
     minHeight: 640,
     autoHideMenuBar: true,
     backgroundColor: "#101218",
+    icon: WINDOW_ICON_PATH,
     title: "YT Music Floating Lyrics",
     webPreferences: {
       preload: path.join(__dirname, "playback-preload.cjs"),
@@ -424,6 +517,7 @@ function createOverlayWindow() {
 
   overlayWindow = new BrowserWindow({
     ...bounds,
+    icon: WINDOW_ICON_PATH,
     title: "Floating Lyrics Overlay",
     show: false,
     frame: false,
@@ -520,6 +614,23 @@ function bindIpc() {
   ipcMain.on("overlay-reset-bounds", () => {
     resetOverlayPosition();
   });
+
+  ipcMain.on("overlay-set-opacity", (_event, payload) => {
+    setOverlayOpacity(Number(payload?.opacity || overlayOpacity));
+  });
+
+  ipcMain.on("overlay-update-preferences", (_event, payload) => {
+    updateOverlayPreferences(payload || {});
+  });
+
+  ipcMain.on("overlay-reset-style", () => {
+    resetOverlayStyle();
+  });
+
+  ipcMain.on("overlay-snap-position", (_event, payload) => {
+    const anchor = typeof payload?.anchor === "string" ? payload.anchor : overlayPreferences.verticalAnchor;
+    updateOverlayPreferences({ verticalAnchor: anchor });
+  });
 }
 
 async function bootstrap() {
@@ -581,6 +692,10 @@ app.on("before-quit", () => {
   ipcMain.removeAllListeners("overlay-request-state");
   ipcMain.removeAllListeners("overlay-resize");
   ipcMain.removeAllListeners("overlay-reset-bounds");
+  ipcMain.removeAllListeners("overlay-set-opacity");
+  ipcMain.removeAllListeners("overlay-update-preferences");
+  ipcMain.removeAllListeners("overlay-reset-style");
+  ipcMain.removeAllListeners("overlay-snap-position");
 });
 
 app.on("will-quit", async () => {

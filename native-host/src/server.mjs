@@ -39,10 +39,11 @@ export function normalizeEvent(payload = {}) {
 export function createLyricsServer({
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
+  cachePath,
   logger = console
 } = {}) {
   const clients = new Set();
-  const lyricsService = new LyricsService();
+  const lyricsService = new LyricsService({ cachePath, logger });
   const recent = createRecentState(lyricsService);
 
   function log(message) {
@@ -246,6 +247,8 @@ export function createLyricsServer({
       if (server.listening) return api;
       if (listenPromise) return listenPromise;
 
+      await lyricsService.ready();
+
       listenPromise = new Promise((resolve, reject) => {
         const onError = (error) => {
           server.off("listening", onListening);
@@ -266,6 +269,7 @@ export function createLyricsServer({
       return listenPromise;
     },
     async close() {
+      await lyricsService.flushCache();
       if (!server.listening) return;
 
       await new Promise((resolve, reject) => {

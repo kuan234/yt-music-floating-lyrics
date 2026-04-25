@@ -11,10 +11,69 @@
       <section id="lyrics-card" aria-live="polite">
         <div id="window-tools" hidden>
           <div id="size-readout" aria-live="off"></div>
-          <button id="reset-size" type="button" aria-label="Reset overlay size" title="Reset overlay size">↺</button>
+          <button id="toggle-settings" type="button" aria-label="Toggle settings" title="Toggle settings">Tune</button>
+          <button id="reset-size" type="button" aria-label="Reset overlay size" title="Reset overlay size">Reset</button>
         </div>
-        <div id="meta"></div>
-        <div id="line">Waiting for playback...</div>
+
+        <section id="settings-panel" hidden aria-label="Overlay settings">
+          <header id="settings-header">
+            <strong>Overlay Settings</strong>
+            <button id="close-settings" type="button" aria-label="Close settings" title="Close settings">Close</button>
+          </header>
+
+          <label class="setting-row">
+            <span>Font preset</span>
+            <select id="font-preset">
+              <option value="default">Default</option>
+              <option value="serif">Serif</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
+
+          <label class="setting-row">
+            <span>Font size</span>
+            <input id="font-size" type="range" min="24" max="72" step="1" />
+            <output id="font-size-value"></output>
+          </label>
+
+          <label class="setting-row">
+            <span>Window opacity</span>
+            <input id="window-opacity" type="range" min="0.45" max="1" step="0.01" />
+            <output id="window-opacity-value"></output>
+          </label>
+
+          <label class="setting-row">
+            <span>Text offset X</span>
+            <input id="text-offset-x" type="range" min="-220" max="220" step="1" />
+            <output id="text-offset-x-value"></output>
+          </label>
+
+          <label class="setting-row">
+            <span>Text offset Y</span>
+            <input id="text-offset-y" type="range" min="-220" max="220" step="1" />
+            <output id="text-offset-y-value"></output>
+          </label>
+
+          <div class="setting-group">
+            <span>Snap position</span>
+            <div id="position-buttons" class="button-row">
+              <button data-anchor="top" type="button">Top</button>
+              <button data-anchor="center" type="button">Center</button>
+              <button data-anchor="bottom" type="button">Bottom</button>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="reset-style" type="button">Reset style</button>
+            <button id="reset-position" type="button">Reset window</button>
+          </div>
+        </section>
+
+        <div id="lyrics-copy">
+          <div id="meta"></div>
+          <div id="line">Waiting for playback...</div>
+        </div>
+
         <button id="resize-handle" type="button" aria-label="Resize overlay" title="Resize overlay"></button>
       </section>
     </main>
