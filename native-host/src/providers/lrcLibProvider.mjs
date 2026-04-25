@@ -5,7 +5,7 @@ import {
 } from "../lyricsUtils.mjs";
 
 const API_BASE = "https://lrclib.net/api";
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 40000;
 
 function durationScore(song, item) {
   const songDuration = Number(song.durationSec || 0);
