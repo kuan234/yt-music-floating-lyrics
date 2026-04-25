@@ -5,6 +5,8 @@
   --panel-bg: linear-gradient(180deg, rgba(8, 12, 20, 0.24), rgba(8, 12, 20, 0.08));
   --panel-border: rgba(255, 255, 255, 0.1);
   --panel-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+  --tool-bg: rgba(8, 12, 20, 0.42);
+  --tool-border: rgba(255, 255, 255, 0.12);
 }
 
 html,
@@ -33,21 +35,67 @@ body {
 }
 
 #lyrics-card {
+  position: relative;
   width: min(100%, 1040px);
+  min-height: calc(100vh - 56px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 24px 18px;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 24px 20px;
   border-radius: 28px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   box-shadow: var(--panel-shadow);
   pointer-events: auto;
   backdrop-filter: blur(18px) saturate(112%);
+  box-sizing: border-box;
 }
 
 html.desktop-mode #lyrics-card {
   -webkit-app-region: drag;
+}
+
+#window-tools {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  background: var(--tool-bg);
+  border: 1px solid var(--tool-border);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+html.interactive-mode #window-tools {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+#size-readout {
+  min-width: 78px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-align: right;
+}
+
+#reset-size {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  font-size: 16px;
+  cursor: pointer;
 }
 
 #meta {
@@ -55,12 +103,41 @@ html.desktop-mode #lyrics-card {
   font-size: 13px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  padding-right: 112px;
 }
 
 #line {
   color: var(--text-main);
-  font-size: clamp(24px, 3vw, 46px);
-  line-height: 1.2;
+  font-size: clamp(22px, min(4.2vw, 12vh), 54px);
+  line-height: 1.22;
   font-weight: 700;
   text-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  overflow-wrap: anywhere;
+}
+
+#resize-handle {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  padding: 0;
+  background:
+    linear-gradient(135deg, transparent 56%, rgba(255, 255, 255, 0.3) 57%, rgba(255, 255, 255, 0.3) 61%, transparent 62%),
+    linear-gradient(135deg, transparent 35%, rgba(255, 255, 255, 0.48) 36%, rgba(255, 255, 255, 0.48) 40%, transparent 41%),
+    linear-gradient(135deg, transparent 14%, rgba(255, 255, 255, 0.72) 15%, rgba(255, 255, 255, 0.72) 19%, transparent 20%);
+  opacity: 0;
+  pointer-events: none;
+  cursor: nwse-resize;
+  -webkit-app-region: no-drag;
+}
+
+html.interactive-mode #resize-handle {
+  opacity: 0.82;
+  pointer-events: auto;
+}
+
+html.resize-active #resize-handle {
+  opacity: 1;
 }

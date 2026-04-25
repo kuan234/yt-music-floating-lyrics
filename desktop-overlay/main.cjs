@@ -17,10 +17,13 @@ const HOST_PORT = 42819;
 const HOST_URL = `http://127.0.0.1:${HOST_PORT}`;
 const PLAYER_WIDTH = 1420;
 const PLAYER_HEIGHT = 920;
-const WINDOW_WIDTH_MIN = 720;
-const WINDOW_WIDTH_MAX = 1400;
-const WINDOW_HEIGHT = 208;
+const WINDOW_WIDTH_MIN = 420;
+const WINDOW_WIDTH_DEFAULT_MIN = 720;
+const WINDOW_WIDTH_DEFAULT_MAX = 1400;
+const WINDOW_HEIGHT_MIN = 140;
+const WINDOW_HEIGHT_DEFAULT = 208;
 const WINDOW_BOTTOM_MARGIN = 40;
+const WINDOW_WORKAREA_MARGIN = 24;
 const WINDOW_OPACITY_DEFAULT = 0.88;
 const WINDOW_OPACITY_STEP = 0.05;
 const WINDOW_OPACITY_MIN = 0.45;
@@ -42,6 +45,9 @@ let hostBridge = null;
 let mousePassthrough = true;
 let overlayOpacity = WINDOW_OPACITY_DEFAULT;
 const STARTUP_LOG = path.join(os.tmpdir(), "ytm-floating-lyrics.startup.log");
+let overlaySettingsPath = "";
+let overlaySettingsSaveTimer = null;
+let overlayBoundsPreference = null;
 
 function writeStartupLog(message) {
   try {
@@ -60,24 +66,189 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function currentDisplayWorkArea() {
-  const targetDisplay = overlayWindow
-    ? screen.getDisplayNearestPoint({
-        x: overlayWindow.getBounds().x,
-        y: overlayWindow.getBounds().y
-      })
-    : screen.getPrimaryDisplay();
+function displayWorkAreaForBounds(bounds) {
+  const targetPoint = bounds
+    ? { x: bounds.x, y: bounds.y }
+    : screen.getPrimaryDisplay().workArea;
 
-  return targetDisplay.workArea;
+  return screen.getDisplayNearestPoint(targetPoint).workArea;
+}
+
+function currentDisplayWorkArea() {
+  return overlayWindow
+    ? displayWorkAreaForBounds(overlayWindow.getBounds())
+    : screen.getPrimaryDisplay().workArea;
+}
+
+function overlaySizeLimits(bounds = null) {
+  const workArea = displayWorkAreaForBounds(bounds);
+
+  return {
+    minWidth: WINDOW_WIDTH_MIN,
+    maxWidth: Math.max(WINDOW_WIDTH_MIN, workArea.width - WINDOW_WORKAREA_MARGIN * 2),
+    minHeight: WINDOW_HEIGHT_MIN,
+    maxHeight: Math.max(WINDOW_HEIGHT_MIN, workArea.height - WINDOW_WORKAREA_MARGIN * 2)
+  };
+}
+
+function fitBoundsToWorkArea(bounds, workArea) {
+  const limits = overlaySizeLimits(bounds);
+  const width = clamp(Math.round(bounds.width || WINDOW_WIDTH_DEFAULT_MIN), limits.minWidth, limits.maxWidth);
+  const height = clamp(Math.round(bounds.height || WINDOW_HEIGHT_DEFAULT), limits.minHeight, limits.maxHeight);
+  const x = clamp(
+    Math.round(Number.isFinite(bounds.x) ? bounds.x : workArea.x),
+    workArea.x,
+    workArea.x + workArea.width - width
+  );
+  const y = clamp(
+    Math.round(Number.isFinite(bounds.y) ? bounds.y : workArea.y),
+    workArea.y,
+    workArea.y + workArea.height - height
+  );
+
+  return { x, y, width, height };
+}
+
+function sanitizedOverlayBounds(bounds = null) {
+  if (!bounds) return recommendedBounds();
+  const workArea = displayWorkAreaForBounds(bounds);
+  return fitBoundsToWorkArea(bounds, workArea);
 }
 
 function recommendedBounds() {
   const workArea = currentDisplayWorkArea();
-  const width = clamp(Math.floor(workArea.width * 0.72), WINDOW_WIDTH_MIN, WINDOW_WIDTH_MAX);
+  const width = clamp(
+    Math.floor(workArea.width * 0.72),
+    WINDOW_WIDTH_DEFAULT_MIN,
+    Math.min(WINDOW_WIDTH_DEFAULT_MAX, workArea.width - WINDOW_WORKAREA_MARGIN * 2)
+  );
   const x = Math.round(workArea.x + (workArea.width - width) / 2);
-  const y = Math.round(workArea.y + workArea.height - WINDOW_HEIGHT - WINDOW_BOTTOM_MARGIN);
+  const y = Math.round(workArea.y + workArea.height - WINDOW_HEIGHT_DEFAULT - WINDOW_BOTTOM_MARGIN);
 
-  return { x, y, width, height: WINDOW_HEIGHT };
+  return { x, y, width, height: WINDOW_HEIGHT_DEFAULT };
+}
+
+function currentOverlaySettingsSnapshot() {
+  return {
+    bounds: overlayWindow && !overlayWindow.isDestroyed()
+      ? overlayWindow.getBounds()
+      : overlayBoundsPreference || recommendedBounds(),
+    opacity: overlayOpacity,
+    mousePassthrough
+  };
+}
+
+function saveOverlaySettingsNow() {
+  if (!overlaySettingsPath) return;
+
+  try {
+    fs.mkdirSync(path.dirname(overlaySettingsPath), { recursive: true });
+    fs.writeFileSync(
+      overlaySettingsPath,
+      JSON.stringify(currentOverlaySettingsSnapshot(), null, 2),
+      "utf8"
+    );
+  } catch (error) {
+    log(`failed to save overlay settings: ${error.message}`);
+  }
+}
+
+function scheduleOverlaySettingsSave() {
+  if (overlaySettingsSaveTimer) {
+    clearTimeout(overlaySettingsSaveTimer);
+  }
+
+  overlaySettingsSaveTimer = setTimeout(() => {
+    overlaySettingsSaveTimer = null;
+    saveOverlaySettingsNow();
+  }, 160);
+}
+
+function loadOverlaySettings() {
+  overlaySettingsPath = path.join(app.getPath("userData"), "overlay-settings.json");
+
+  try {
+    if (!fs.existsSync(overlaySettingsPath)) {
+      overlayBoundsPreference = recommendedBounds();
+      return;
+    }
+
+    const raw = fs.readFileSync(overlaySettingsPath, "utf8");
+    const parsed = JSON.parse(raw);
+
+    if (parsed?.bounds) {
+      overlayBoundsPreference = sanitizedOverlayBounds(parsed.bounds);
+    }
+
+    if (Number.isFinite(parsed?.opacity)) {
+      overlayOpacity = clamp(Number(parsed.opacity), WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX);
+    }
+
+    if (typeof parsed?.mousePassthrough === "boolean") {
+      mousePassthrough = parsed.mousePassthrough;
+    }
+  } catch (error) {
+    log(`failed to load overlay settings: ${error.message}`);
+    overlayBoundsPreference = recommendedBounds();
+  }
+}
+
+function emitOverlayState() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (overlayWindow.webContents.isLoadingMainFrame()) return;
+
+  const bounds = overlayWindow.getBounds();
+  overlayWindow.webContents.send("overlay-state", {
+    interactive: !mousePassthrough,
+    opacity: overlayOpacity,
+    bounds,
+    limits: overlaySizeLimits(bounds)
+  });
+}
+
+function setOverlayBounds(nextBounds, { announce = false } = {}) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+
+  const sanitized = sanitizedOverlayBounds(nextBounds);
+  overlayWindow.setBounds(sanitized);
+  overlayWindow.moveTop();
+  overlayBoundsPreference = sanitized;
+  scheduleOverlaySettingsSave();
+
+  if (announce) {
+    log(`overlay bounds ${sanitized.width}x${sanitized.height} @ ${sanitized.x},${sanitized.y}`);
+  }
+}
+
+function resizeOverlayWindow(size = {}) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+
+  const current = overlayWindow.getBounds();
+  const workArea = displayWorkAreaForBounds(current);
+  const limits = overlaySizeLimits(current);
+  const width = clamp(
+    Math.round(Number(size.width || current.width)),
+    limits.minWidth,
+    limits.maxWidth
+  );
+  const height = clamp(
+    Math.round(Number(size.height || current.height)),
+    limits.minHeight,
+    limits.maxHeight
+  );
+
+  setOverlayBounds({
+    width,
+    height,
+    x: Math.round(current.x + (current.width - width) / 2),
+    y: Math.round(current.y + current.height - height)
+  });
+
+  // Keep the window inside the active display after anchored resizing.
+  const fitted = fitBoundsToWorkArea(overlayWindow.getBounds(), workArea);
+  overlayWindow.setBounds(fitted);
+  overlayBoundsPreference = fitted;
+  emitOverlayState();
 }
 
 function applyWindowMode() {
@@ -88,6 +259,8 @@ function applyWindowMode() {
   overlayWindow.setAlwaysOnTop(true, "screen-saver");
   overlayWindow.setOpacity(overlayOpacity);
   overlayWindow.moveTop();
+  scheduleOverlaySettingsSave();
+  emitOverlayState();
 
   log(`mouse passthrough ${mousePassthrough ? "ON" : "OFF"} | opacity ${overlayOpacity.toFixed(2)}`);
 }
@@ -99,8 +272,7 @@ function setOverlayOpacity(nextOpacity) {
 
 function resetOverlayPosition() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  overlayWindow.setBounds(recommendedBounds());
-  overlayWindow.moveTop();
+  setOverlayBounds(recommendedBounds());
   log("overlay position reset");
 }
 
@@ -248,7 +420,7 @@ function createPlayerWindow() {
 }
 
 function createOverlayWindow() {
-  const bounds = recommendedBounds();
+  const bounds = overlayBoundsPreference || recommendedBounds();
 
   overlayWindow = new BrowserWindow({
     ...bounds,
@@ -258,7 +430,9 @@ function createOverlayWindow() {
     transparent: true,
     backgroundColor: "#00000000",
     hasShadow: false,
-    resizable: false,
+    resizable: true,
+    minWidth: WINDOW_WIDTH_MIN,
+    minHeight: WINDOW_HEIGHT_MIN,
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
@@ -268,6 +442,7 @@ function createOverlayWindow() {
     alwaysOnTop: true,
     focusable: false,
     webPreferences: {
+      preload: path.join(__dirname, "overlay-preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false
@@ -279,7 +454,12 @@ function createOverlayWindow() {
   overlayWindow.once("ready-to-show", () => {
     overlayWindow.showInactive();
     applyWindowMode();
+    emitOverlayState();
     log("overlay ready");
+  });
+
+  overlayWindow.webContents.on("did-finish-load", () => {
+    emitOverlayState();
   });
 
   overlayWindow.on("closed", () => {
@@ -292,6 +472,16 @@ function createOverlayWindow() {
       overlayWindow.moveTop();
     }
   });
+
+  const syncOverlayMetrics = () => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    overlayBoundsPreference = overlayWindow.getBounds();
+    scheduleOverlaySettingsSave();
+    emitOverlayState();
+  };
+
+  overlayWindow.on("move", syncOverlayMetrics);
+  overlayWindow.on("resize", syncOverlayMetrics);
 
   overlayWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
@@ -318,10 +508,23 @@ function bindIpc() {
   ipcMain.on("playback-event", (_event, payload) => {
     void forwardPlaybackEvent(payload);
   });
+
+  ipcMain.on("overlay-request-state", () => {
+    emitOverlayState();
+  });
+
+  ipcMain.on("overlay-resize", (_event, size) => {
+    resizeOverlayWindow(size);
+  });
+
+  ipcMain.on("overlay-reset-bounds", () => {
+    resetOverlayPosition();
+  });
 }
 
 async function bootstrap() {
   writeStartupLog("bootstrap begin");
+  loadOverlaySettings();
   await startHostBridge();
   bindIpc();
   createOverlayWindow();
@@ -375,10 +578,19 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   ipcMain.removeAllListeners("playback-event");
+  ipcMain.removeAllListeners("overlay-request-state");
+  ipcMain.removeAllListeners("overlay-resize");
+  ipcMain.removeAllListeners("overlay-reset-bounds");
 });
 
 app.on("will-quit", async () => {
   globalShortcut.unregisterAll();
+
+  if (overlaySettingsSaveTimer) {
+    clearTimeout(overlaySettingsSaveTimer);
+    overlaySettingsSaveTimer = null;
+  }
+  saveOverlaySettingsNow();
 
   if (hostBridge?.close) {
     try {

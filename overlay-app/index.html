@@ -9,8 +9,13 @@
   <body>
     <main id="overlay">
       <section id="lyrics-card" aria-live="polite">
+        <div id="window-tools" hidden>
+          <div id="size-readout" aria-live="off"></div>
+          <button id="reset-size" type="button" aria-label="Reset overlay size" title="Reset overlay size">↺</button>
+        </div>
         <div id="meta"></div>
         <div id="line">Waiting for playback...</div>
+        <button id="resize-handle" type="button" aria-label="Resize overlay" title="Resize overlay"></button>
       </section>
     </main>
     <script src="overlay.js"></script>

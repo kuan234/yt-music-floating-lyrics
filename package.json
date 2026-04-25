@@ -7,7 +7,7 @@
   "type": "module",
   "main": "desktop-overlay/main.cjs",
   "scripts": {
-    "check": "node --check chrome-extension/content.js && node --check chrome-extension/background.js && node --check native-host/src/server.mjs && node --check native-host/src/lyricsService.mjs && node --check native-host/src/lyricsUtils.mjs && node --check native-host/src/providers/lrcLibProvider.mjs && node --check native-host/src/providers/staticLyricsProvider.mjs && node --check overlay-app/overlay.js && node --check overlay-app/serve-overlay.mjs && node --check desktop-overlay/main.cjs && node --check desktop-overlay/playback-preload.cjs && node --check scripts/smoke.mjs && node --check scripts/start-desktop.mjs",
+    "check": "node --check chrome-extension/content.js && node --check chrome-extension/background.js && node --check native-host/src/server.mjs && node --check native-host/src/lyricsService.mjs && node --check native-host/src/lyricsUtils.mjs && node --check native-host/src/providers/lrcLibProvider.mjs && node --check native-host/src/providers/staticLyricsProvider.mjs && node --check overlay-app/overlay.js && node --check overlay-app/serve-overlay.mjs && node --check desktop-overlay/main.cjs && node --check desktop-overlay/playback-preload.cjs && node --check desktop-overlay/overlay-preload.cjs && node --check scripts/smoke.mjs && node --check scripts/start-desktop.mjs",
     "start:host": "npm --prefix native-host run start",
     "start:overlay": "npm --prefix overlay-app run start",
     "start:desktop": "node scripts/start-desktop.mjs",

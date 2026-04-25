@@ -1,9 +1,14 @@
 const metaEl = document.getElementById("meta");
 const lineEl = document.getElementById("line");
+const toolsEl = document.getElementById("window-tools");
+const sizeReadoutEl = document.getElementById("size-readout");
+const resetSizeEl = document.getElementById("reset-size");
+const resizeHandleEl = document.getElementById("resize-handle");
 
 const params = new URLSearchParams(window.location.search);
 const desktopMode = params.get("mode") === "desktop" || navigator.userAgent.includes("Electron");
 const hostBaseUrl = params.get("host") || "http://127.0.0.1:42819";
+const desktopBridge = window.overlayDesktop || null;
 
 document.documentElement.classList.toggle("desktop-mode", desktopMode);
 
@@ -14,8 +19,44 @@ const state = {
   currentTimeSec: 0,
   eventReceivedAtMs: 0,
   lines: [],
-  lyricsStatus: "loading"
+  lyricsStatus: "loading",
+  desktop: {
+    interactive: false,
+    bounds: {
+      width: window.innerWidth,
+      height: window.innerHeight
+    },
+    resizing: false,
+    resizeStart: null
+  }
 };
+
+function syncDesktopUi() {
+  const active = desktopMode && Boolean(desktopBridge);
+  const interactive = active && state.desktop.interactive;
+
+  document.documentElement.classList.toggle("interactive-mode", interactive);
+  document.documentElement.classList.toggle("resize-active", Boolean(state.desktop.resizing));
+
+  toolsEl.hidden = !interactive;
+  resizeHandleEl.hidden = !interactive;
+
+  if (state.desktop.bounds) {
+    sizeReadoutEl.textContent = `${Math.round(state.desktop.bounds.width)} x ${Math.round(state.desktop.bounds.height)}`;
+  }
+}
+
+function applyDesktopState(payload = {}) {
+  if (typeof payload.interactive === "boolean") {
+    state.desktop.interactive = payload.interactive;
+  }
+
+  if (payload.bounds) {
+    state.desktop.bounds = payload.bounds;
+  }
+
+  syncDesktopUi();
+}
 
 function effectiveCurrentTimeSec() {
   if (!state.isPlaying) return state.currentTimeSec;
@@ -74,6 +115,54 @@ function applyPayload(data) {
   }
 }
 
+function endResize() {
+  if (!state.desktop.resizing) return;
+
+  state.desktop.resizing = false;
+  state.desktop.resizeStart = null;
+  syncDesktopUi();
+  window.removeEventListener("pointermove", handleResizeMove);
+  window.removeEventListener("pointerup", endResize);
+}
+
+function handleResizeMove(event) {
+  const resizeStart = state.desktop.resizeStart;
+  if (!resizeStart || !desktopBridge) return;
+
+  desktopBridge.resizeWindow({
+    width: resizeStart.width + (event.screenX - resizeStart.screenX),
+    height: resizeStart.height + (event.screenY - resizeStart.screenY)
+  });
+}
+
+function beginResize(event) {
+  if (!desktopBridge || !state.desktop.interactive) return;
+
+  event.preventDefault();
+  state.desktop.resizing = true;
+  state.desktop.resizeStart = {
+    screenX: event.screenX,
+    screenY: event.screenY,
+    width: state.desktop.bounds?.width || window.innerWidth,
+    height: state.desktop.bounds?.height || window.innerHeight
+  };
+
+  syncDesktopUi();
+  window.addEventListener("pointermove", handleResizeMove);
+  window.addEventListener("pointerup", endResize, { once: true });
+}
+
+if (desktopBridge?.onState) {
+  desktopBridge.onState(applyDesktopState);
+  desktopBridge.requestState();
+}
+
+resetSizeEl.addEventListener("click", () => {
+  desktopBridge?.resetBounds();
+});
+
+resizeHandleEl.addEventListener("pointerdown", beginResize);
+
 const source = new EventSource(`${hostBaseUrl}/stream`);
 
 source.onmessage = (event) => {
@@ -97,4 +186,5 @@ function animationLoop() {
   window.requestAnimationFrame(animationLoop);
 }
 
+syncDesktopUi();
 window.requestAnimationFrame(animationLoop);
