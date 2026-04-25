@@ -1,17 +1,54 @@
 {
   "name": "yt-music-floating-lyrics",
+  "version": "0.4.0",
   "private": true,
+  "description": "Desktop floating synced lyrics for YouTube Music on Windows.",
+  "author": "ACER",
   "type": "module",
   "main": "desktop-overlay/main.cjs",
   "scripts": {
-    "check": "node --check chrome-extension/content.js && node --check chrome-extension/background.js && npm --prefix native-host run check && npm --prefix overlay-app run check && node --check desktop-overlay/main.cjs && node --check scripts/smoke.mjs && node --check scripts/start-desktop.mjs",
+    "check": "node --check chrome-extension/content.js && node --check chrome-extension/background.js && node --check native-host/src/server.mjs && node --check native-host/src/lyricsService.mjs && node --check native-host/src/lyricsUtils.mjs && node --check native-host/src/providers/lrcLibProvider.mjs && node --check native-host/src/providers/staticLyricsProvider.mjs && node --check overlay-app/overlay.js && node --check overlay-app/serve-overlay.mjs && node --check desktop-overlay/main.cjs && node --check desktop-overlay/playback-preload.cjs && node --check scripts/smoke.mjs && node --check scripts/start-desktop.mjs",
     "start:host": "npm --prefix native-host run start",
     "start:overlay": "npm --prefix overlay-app run start",
-    "start:desktop": "electron .",
+    "start:desktop": "node scripts/start-desktop.mjs",
     "desktop": "node scripts/start-desktop.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "pack": "electron-builder --dir",
+    "dist:win": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.manaka.ytmfloatinglyrics",
+    "productName": "YT Music Floating Lyrics",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop-overlay/**/*",
+      "native-host/**/*",
+      "overlay-app/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "YT Music Floating Lyrics"
+    }
   },
   "devDependencies": {
-    "electron": "41.3.0"
+    "electron": "41.3.0",
+    "electron-builder": "^26.9.0"
   }
 }

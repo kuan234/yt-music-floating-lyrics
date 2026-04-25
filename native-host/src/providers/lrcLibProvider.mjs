@@ -6,6 +6,68 @@ import {
 
 const API_BASE = "https://lrclib.net/api";
 const REQUEST_TIMEOUT_MS = 40000;
+const MAX_QUERY_VARIANTS = 8;
+
+function compactWhitespace(value = "") {
+  return String(value)
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanupQueryText(value = "") {
+  return compactWhitespace(value)
+    .replace(/\[[^\]]*]/g, " ")
+    .replace(/\((live|remix|ver\.?|version|official|audio|video|mv|ost|opening|ending).*?\)/gi, " ")
+    .replace(/feat\.?\s+.+$/i, " ")
+    .replace(/\s+-\s+topic$/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeStrings(values) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values) {
+    const normalized = compactWhitespace(value);
+    if (!normalized) continue;
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function titleVariants(title = "") {
+  const cleaned = cleanupQueryText(title);
+  const normalized = normalizeSongText(title);
+  const values = [
+    title,
+    cleaned,
+    cleaned.replace(/\s+-\s+.*$/, "").trim(),
+    cleaned.replace(/\s*\/\s*.*$/, "").trim(),
+    normalized
+  ];
+
+  return dedupeStrings(values);
+}
+
+function artistVariants(artist = "") {
+  const cleaned = cleanupQueryText(artist);
+  const normalized = normalizeSongText(artist);
+  const primary = cleaned.split(/\s*(?:,|&|\/| x | × |、|;| feat\.?| ft\.?)\s*/i)[0];
+
+  return dedupeStrings([artist, cleaned, primary, normalized]);
+}
+
+function albumVariants(album = "") {
+  const cleaned = cleanupQueryText(album);
+  return dedupeStrings([album, cleaned]);
+}
 
 function durationScore(song, item) {
   const songDuration = Number(song.durationSec || 0);
@@ -67,6 +129,41 @@ function scoreCandidate(song, item) {
   return score;
 }
 
+function createSearchQueries(song) {
+  const titles = titleVariants(song.title).slice(0, 4);
+  const artists = artistVariants(song.artist).slice(0, 3);
+  const albums = albumVariants(song.album).slice(0, 2);
+  const queries = [];
+
+  for (const title of titles) {
+    for (const artist of artists.length ? artists : [""]) {
+      queries.push({
+        track_name: title,
+        artist_name: artist,
+        album_name: albums[0] || "",
+        duration: song.durationSec ? String(Math.round(song.durationSec)) : ""
+      });
+
+      if (queries.length >= MAX_QUERY_VARIANTS) {
+        return queries;
+      }
+    }
+
+    queries.push({
+      track_name: title,
+      artist_name: "",
+      album_name: albums[0] || "",
+      duration: song.durationSec ? String(Math.round(song.durationSec)) : ""
+    });
+
+    if (queries.length >= MAX_QUERY_VARIANTS) {
+      return queries;
+    }
+  }
+
+  return queries;
+}
+
 async function fetchJson(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -76,7 +173,7 @@ async function fetchJson(url) {
       signal: controller.signal,
       headers: {
         accept: "application/json",
-        "user-agent": "yt-music-floating-lyrics/0.3"
+        "user-agent": "yt-music-floating-lyrics/0.4"
       }
     });
 
@@ -92,15 +189,35 @@ async function fetchJson(url) {
 
 export class LrcLibProvider {
   async search(song) {
-    const url = new URL(`${API_BASE}/search`);
-    url.searchParams.set("track_name", song.title || "");
-    url.searchParams.set("artist_name", song.artist || "");
+    const results = new Map();
 
-    if (song.album) url.searchParams.set("album_name", song.album);
-    if (song.durationSec) url.searchParams.set("duration", String(Math.round(song.durationSec)));
+    for (const query of createSearchQueries(song)) {
+      const url = new URL(`${API_BASE}/search`);
+      for (const [key, value] of Object.entries(query)) {
+        if (value) {
+          url.searchParams.set(key, value);
+        }
+      }
 
-    const results = await fetchJson(url);
-    return Array.isArray(results) ? results : [];
+      const response = await fetchJson(url);
+      const items = Array.isArray(response) ? response : [];
+
+      for (const item of items) {
+        const cacheKey = [
+          normalizeSongText(item.trackName || item.name),
+          normalizeSongText(item.artistName),
+          Number(item.duration || 0)
+        ].join("|");
+
+        if (!results.has(cacheKey)) {
+          results.set(cacheKey, item);
+        }
+      }
+
+      if (results.size >= 12) break;
+    }
+
+    return [...results.values()];
   }
 
   async findLyrics(song) {

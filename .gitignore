@@ -4,3 +4,4 @@ chrome-extension.pem
 chrome-extension.crx
 *.log
 *.pid
+dist/
