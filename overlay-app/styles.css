@@ -69,6 +69,16 @@ html.desktop-mode #lyrics-card {
   -webkit-app-region: drag;
 }
 
+html.desktop-mode button,
+html.desktop-mode input,
+html.desktop-mode select,
+html.desktop-mode output,
+html.desktop-mode #settings-panel,
+html.desktop-mode #window-tools,
+html.desktop-mode #resize-handle {
+  -webkit-app-region: no-drag;
+}
+
 #window-tools {
   position: absolute;
   top: 12px;
